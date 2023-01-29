@@ -1,0 +1,147 @@
+(ns pull-to-refresh.refresh
+  (:require
+   ["package:flutter/material.dart" :as m]
+   ["package:custom_refresh_indicator/custom_refresh_indicator.dart" :as refresh]
+   ["package:mongol/mongol.dart" :as mgl]
+   ["dart:async" :as a]
+   [cljd.flutter.alpha2 :as f]))
+
+(defn fake-box [info]
+  (let [{width :width height :height child :child}
+        info]
+    (m/Container
+     .margin (.only m/EdgeInsets .right 10)
+     .width width
+     .height height
+     .decoration
+     (m/BoxDecoration
+      .color (m/Color 0xFFE2D8D7)
+      .borderRadius
+      (.all m/BorderRadius
+            (.circular m/Radius 10)))
+     .child child)))
+
+(defn element []
+  (m/Container
+   .alignment (.topCenter m/Alignment)
+   .padding (.all m/EdgeInsets 20)
+   .child
+   (m/Column
+    .crossAxisAlignment (.start m/CrossAxisAlignment)
+    .children
+    [(fake-box {:height 48 :width 48})
+     (m/SizedBox .height 20)
+     (m/Expanded
+      .child
+      (m/Row
+       .mainAxisSize (.min m/MainAxisSize)
+       .mainAxisAlignment (.start m/MainAxisAlignment)
+       .crossAxisAlignment (.start m/CrossAxisAlignment)
+       .children
+       [(fake-box {:width 8 :height double/infinity})
+        (fake-box {:width 8 :height double/infinity})
+        (fake-box {:width 8 :height 200})]))])))
+
+(defn ^a/Future on-refresh []
+  (a.Future/delayed (Duration .seconds 2)))
+
+(defn refresh-list [info]
+  (let [{background-color :background-color
+         reverse :reverse
+         item-count :item-count}
+        info]
+    (f/widget
+     :context ctx
+     (m/DecoratedBox
+      .decoration
+      (m/BoxDecoration
+       .color background-color
+       .boxShadow
+       [(m/BoxShadow
+         .blurRadius 2
+         .color (.black12 m/Colors)
+         .spreadRadius 0.5
+         .offset (m/Offset 0 0))])
+      .child
+      (.separated
+       m/ListView
+       .reverse reverse
+       .scrollDirection (.horizontal m/Axis)
+       .physics
+       (m/AlwaysScrollableScrollPhysics
+        .parent
+        (m/ClampingScrollPhysics))
+       .itemBuilder
+       (fn [context index]
+         (element))
+       .itemCount item-count
+       .separatorBuilder
+       (fn [context index]
+         (m/VerticalDivider .width 0
+                            .color (m/Color 0xFFe2d6ce)
+                            .thickness 1)))))))
+
+(defn horizontal-refresh []
+  (f/widget
+   :managed [controller (refresh/IndicatorController .refreshEnabled true)]
+   (refresh/CustomRefreshIndicator
+    .leadingScrollIndicatorVisible false
+    .trailingScrollIndicatorVisible false
+    .triggerMode (.anywhere refresh/IndicatorTriggerMode)
+    .trigger refresh.IndicatorTrigger/bothEdges
+    .controller controller
+    .builder
+    (fn [_ child _]
+      (m/AnimatedBuilder
+       .animation controller
+       .builder
+       (fn [context _]
+         (m/Stack
+          .alignment
+          (.topStart m/AlignmentDirectional)
+          .children
+          [(m/Container
+            .width 100
+            .color (.amber m/Colors)
+            .child
+            (m/Center
+             .child
+             (mgl/MongolText "NOT ARMED"
+                             .style
+                             (m/TextStyle
+                              .color (.white m/Colors)
+                              .fontWeight (.bold m/FontWeight)
+                              .fontSize 20))))
+           (m/Container
+            .margin
+            (.only m/EdgeInsets .left 100)
+            .height double/infinity
+            .width 50
+            .color (.greenAccent m/Colors)
+            .child
+            (m/Center
+             .child
+             (mgl/MongolText
+              "ARMED"
+              .style
+              (m/TextStyle
+               .color (.white m/Colors)
+               .fontWeight (.bold m/FontWeight)
+               .fontSize 20))))
+           (.translate
+            m/Transform
+            .offset (m/Offset (*
+                               100
+                               (.-value controller))
+                              0)
+            .child child)]))))
+    .onRefresh
+    #(a.Future/delayed (Duration .seconds 2))
+    .child
+    (refresh-list {:background-color (m/Color 0xFFf8f4fc)
+                   :reverse false
+                   :item-count 10}))))
+
+
+
+
