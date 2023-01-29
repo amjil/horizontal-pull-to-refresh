@@ -2,6 +2,8 @@
 
 A new Flutter project.
 
+![image](horizontal-refresh.gif)
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
