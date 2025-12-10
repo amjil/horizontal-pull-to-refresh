@@ -1,20 +1,26 @@
 (ns pull-to-refresh.main
   (:require ["package:flutter/material.dart" :as m]
-            [pull-to-refresh.refresh :as refresh]
-            [cljd.flutter.alpha2 :as f]))
+            ["dart:async" :as a]
+            ["dart:core" :refer [Duration]]
+            [pull-to-refresh.refresh :as refresh]))
 
 (defn main []
   (m/runApp
    (m/MaterialApp
     .title "Welcome to Flutter"
     .theme (m/ThemeData .primarySwatch m.Colors/blue
-                        .fontFamily "MongolianBaiZheng")
+                        .fontFamily "OyunQaganTig"
+                        .brightness m.Brightness/dark)
     .home
     (m/Scaffold
      .appBar (m/AppBar
               .title (m/Text "Horizontal Pull To Refresh Example"))
-     .body
-     (refresh/horizontal-refresh))
+    .body
+    (refresh/horizontal-refresh
+     {:on-refresh #(a.Future/delayed (Duration .seconds 2))
+      :item-count 10
+      :background-color (m/Color 0xFFf8f4fc)
+      :reverse false}))
     ;;  (m/Center
     ;;            .child (m/Text "Text Text"
     ;;                           .style (m/TextStyle
