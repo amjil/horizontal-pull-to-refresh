@@ -1,252 +1,272 @@
 (ns pull-to-refresh.refresh
-  "Horizontal pull-to-refresh component library
-  
-  Provides configurable horizontal pull-to-refresh functionality, supporting custom refresh callbacks, list item builders,
-  style configurations, etc."
+  "Horizontal pull-to-refresh library for ClojureDart / Flutter.
+
+  Default gesture: swipe right from the left edge to refresh.
+
+  Public API:
+  - `horizontal-refresh` — wrap a horizontal list with pull-to-refresh
+  - `default-indicator-builder` — default left-edge indicator, overridable"
   (:require
    ["package:flutter/material.dart" :as m]
    ["package:custom_refresh_indicator/custom_refresh_indicator.dart" :as refresh]
-   ["package:mongol/mongol.dart" :as mgl]
-   ["dart:core" :as double]
+   ["dart:core" :as dc]
    [cljd.flutter :as f]))
 
 ;; ============================================================================
-;; Internal helper functions (private)
+;; Options
 ;; ============================================================================
 
-(defn- fake-box [info]
-  (let [{width :width 
-         height :height 
-         child :child
-         color :color
-         margin-right :margin-right}
-        info]
-    (m/Container
-     .margin (m/EdgeInsets.only .right (or margin-right 10))
-     .width width
-     .height height
-     .decoration
-     (m/BoxDecoration
-      .color (or color (m/Color 0xFFE2D8D7))
-      .borderRadius
-      (m/BorderRadius.all
-            (m/Radius.circular 10)))
-     .child child)))
+(def ^:private default-opts
+  {:direction :right
+   :reverse false
+   :indicator-width 72.0
+   :not-armed-color (m/Color 0xFF5C6BC0)
+   :armed-color (m/Color 0xFF26A69A)
+   :loading-color (m/Color 0xFF26A69A)
+   :not-armed-text "Swipe to refresh"
+   :armed-text "Release to refresh"
+   :text-style (m/TextStyle
+                .color m/Colors.white
+                .fontWeight m/FontWeight.w600
+                .fontSize 16.0)
+   :trigger-mode refresh/IndicatorTriggerMode.onEdge
+   :leading-scroll-indicator-visible false
+   :trailing-scroll-indicator-visible false
+   :background-color (m/Color 0xFFf8f4fc)})
 
-(defn- default-element []
-  (m/Container
-   .alignment m/Alignment.topCenter
-   .padding (m/EdgeInsets.all 20)
-   .child
-   (m/Column
-    .crossAxisAlignment m/CrossAxisAlignment.start
-    .children
-    [(fake-box {:height 48 :width 48})
-     (m/SizedBox .height 20)
-     (m/Expanded
-      .child
-      (m/Row
-       .mainAxisSize m/MainAxisSize.min
-       .mainAxisAlignment m/MainAxisAlignment.start
-       .crossAxisAlignment m/CrossAxisAlignment.start
-       .children
-       [(fake-box {:width 8 :height double/infinity})
-        (fake-box {:width 8 :height double/infinity})
-        (fake-box {:width 8 :height 200})]))])))
+(defn- normalize-opts [config]
+  (let [opts (merge default-opts config)
+        width (or (:indicator-width opts) 72.0)]
+    (assoc opts
+      :indicator-width width
+      :offset-to-armed (or (:offset-to-armed opts) width))))
 
-(defn- default-refresh-list [config]
-  (let [{background-color :background-color
-         reverse :reverse
-         item-count :item-count
-         item-builder :item-builder
-         separator-builder :separator-builder
-         separator-color :separator-color
-         separator-thickness :separator-thickness
-         separator-width :separator-width
-         box-shadow :box-shadow}
-        config
-        item-builder-fn (or item-builder
-                           (fn [_ _]
-                             (default-element)))
-        separator-color-val (or separator-color (m/Color 0xFFe2d6ce))
-        separator-thickness-val (or separator-thickness 1)
-        separator-width-val (or separator-width 0)
-        box-shadow-val (or box-shadow
-                          [(m/BoxShadow
-                            .blurRadius 2
-                            .color (.black12 m/Colors)
-                            .spreadRadius 0.5
-                            .offset (m/Offset 0 0))])]
-    (f/widget
-     (m/DecoratedBox
-      .decoration
-      (m/BoxDecoration
-       .color background-color
-       .boxShadow box-shadow-val))
-     (m/ListView.separated
-      .reverse reverse
-      .scrollDirection m/Axis.horizontal
-      .physics
-      (m/AlwaysScrollableScrollPhysics
-       .parent
-       (m/ClampingScrollPhysics))
-      .itemBuilder item-builder-fn
-      .itemCount item-count
-      .separatorBuilder
-      (or separator-builder
-          (fn [_ _]
-            (m/VerticalDivider .width separator-width-val
-                               .color separator-color-val
-                               .thickness separator-thickness-val)))))))
+(defn- clamp01 [n]
+  (cond
+    (< n 0.0) 0.0
+    (> n 1.0) 1.0
+    :else n))
 
-(defn- default-indicator-builder [^refresh/IndicatorController controller 
-                                  config]
-  (let [{indicator-width :indicator-width
-         indicator-offset :indicator-offset
-         not-armed-color :not-armed-color
-         not-armed-text :not-armed-text
-         armed-color :armed-color
-         armed-text :armed-text
-         armed-width :armed-width
-         armed-margin-left :armed-margin-left
-         text-style :text-style}
-        config
-        indicator-width-val (or indicator-width 100)
-        indicator-offset-val (or indicator-offset 100)
-        not-armed-color-val (or not-armed-color m/Colors.amber)
-        not-armed-text-val (or not-armed-text "NOT ARMED")
-        armed-color-val (or armed-color m/Colors.greenAccent)
-        armed-text-val (if (nil? armed-text) "ARMED" armed-text)
-        armed-width-val (or armed-width 50)
-        armed-margin-left-val (or armed-margin-left indicator-width-val)
-        text-style-val (or text-style
-                          (m/TextStyle
-                           .color m/Colors.white
-                           .fontWeight m/FontWeight.bold
-                           .fontSize 20))]
-    (fn [_ child _]
+(defn- refresh-trigger
+  "Swipe-right refresh uses the visual left edge.
+  When the list is reversed, that edge is the trailing edge."
+  [{:keys [trigger direction reverse]}]
+  (or trigger
+      (if (= direction :left)
+        (if reverse
+          refresh/IndicatorTrigger.leadingEdge
+          refresh/IndicatorTrigger.trailingEdge)
+        (if reverse
+          refresh/IndicatorTrigger.trailingEdge
+          refresh/IndicatorTrigger.leadingEdge))))
+
+(defn- default-text-builder [direction]
+  (fn [text style]
+    (m/RotatedBox
+     .quarterTurns (if (= direction :left) 1 3)
+     .child
+     (m/Text text
+             .style style
+             .softWrap false
+             .maxLines 1))))
+
+;; ============================================================================
+;; Default indicator
+;; ============================================================================
+
+(defn default-indicator-builder
+  "Build the default swipe-to-refresh indicator.
+
+  Returns a fn of `[context child controller]`. Pass the result as
+  `:indicator-builder`, or rely on `horizontal-refresh` to use this
+  automatically.
+
+  Recognized keys in `opts`:
+  `:direction`, `:indicator-width`, `:offset-to-armed`,
+  `:not-armed-color`, `:armed-color`, `:loading-color`,
+  `:not-armed-text`, `:armed-text`, `:loading-text`,
+  `:text-style`, `:text-builder`"
+  [opts]
+  (let [{:keys [direction indicator-width offset-to-armed
+                not-armed-color armed-color loading-color
+                not-armed-text armed-text loading-text
+                text-style text-builder]}
+        opts
+        text-builder (or text-builder (default-text-builder direction))]
+    (fn [_ child ^refresh/IndicatorController controller]
       (m/AnimatedBuilder
        .animation controller
        .builder
        (fn [_ _]
-         (m/Stack
-          .alignment
-          m/AlignmentDirectional.topStart
-          .children
-          [(m/Container
-            .width indicator-width-val
-            .color not-armed-color-val
+         (let [value (.-value controller)
+               loading? (.-isLoading controller)
+               armed? (.-isArmed controller)
+               color (cond
+                       loading? loading-color
+                       armed? armed-color
+                       :else not-armed-color)
+               label (cond
+                       loading? (or loading-text armed-text)
+                       armed? armed-text
+                       :else not-armed-text)
+               dx (let [delta (* offset-to-armed value)]
+                    (if (= direction :left) (- delta) delta))
+               show-spinner? (and loading? (nil? loading-text))]
+           (m/ClipRect
             .child
-            (m/Center
-             .child
-             (mgl/MongolText not-armed-text-val
-                             .style text-style-val)))
-           (m/Container
-            .margin
-            (m/EdgeInsets.only .left armed-margin-left-val)
-            .height double/infinity
-            .width armed-width-val
-            .color armed-color-val
-            .child
-            (m/Center
-             .child
-             (mgl/MongolText
-              armed-text-val
-              .style text-style-val)))
-           (.translate
-            m/Transform
-            .offset (m/Offset (*
-                               indicator-offset-val
-                               (.-value controller))
-                              0)
-            .child child)]))))))
+            (m/Stack
+             .fit m/StackFit.expand
+             .children
+             [(m/Align
+               .alignment (if (= direction :left)
+                            m/Alignment.centerRight
+                            m/Alignment.centerLeft)
+               .child
+               (m/Opacity
+                .opacity (clamp01 value)
+                .child
+                (m/Container
+                 .width indicator-width
+                 .color color
+                 .alignment m/Alignment.center
+                 .child
+                 (if show-spinner?
+                   (m/SizedBox
+                    .width 22.0
+                    .height 22.0
+                    .child
+                    (m/CircularProgressIndicator
+                     .strokeWidth 2.5
+                     .color m/Colors.white))
+                   (text-builder label text-style)))))
+              (.translate
+               m/Transform
+               .offset (m/Offset dx 0.0)
+               .child child)]))))))))
+
+;; ============================================================================
+;; Built-in horizontal list
+;; ============================================================================
+
+(defn- list-physics [physics]
+  (or physics
+      (m/AlwaysScrollableScrollPhysics
+       .parent (m/ClampingScrollPhysics))))
+
+(defn- default-separator [opts]
+  (fn [_ _]
+    (m/VerticalDivider
+     .width (or (:separator-width opts) 0.0)
+     .color (or (:separator-color opts) (m/Color 0xFFe2d6ce))
+     .thickness (or (:separator-thickness opts) 1.0))))
+
+(defn- horizontal-list [opts]
+  (let [{:keys [background-color reverse item-count item-builder
+                separator-builder box-shadow scroll-controller
+                padding physics]}
+        opts
+        list-view
+        (if (or separator-builder
+                (:separator-color opts)
+                (:separator-thickness opts)
+                (:separator-width opts))
+          (m/ListView.separated
+           .controller scroll-controller
+           .reverse (boolean reverse)
+           .padding padding
+           .scrollDirection m/Axis.horizontal
+           .physics (list-physics physics)
+           .itemBuilder item-builder
+           .itemCount item-count
+           .separatorBuilder (or separator-builder (default-separator opts)))
+          (m/ListView.builder
+           .controller scroll-controller
+           .reverse (boolean reverse)
+           .padding padding
+           .scrollDirection m/Axis.horizontal
+           .physics (list-physics physics)
+           .itemBuilder item-builder
+           .itemCount item-count))]
+    (if (or background-color box-shadow)
+      (m/DecoratedBox
+       .decoration
+       (m/BoxDecoration
+        .color background-color
+        .boxShadow (or box-shadow
+                       [(m/BoxShadow
+                         .blurRadius 2.0
+                         .color m/Colors.black12
+                         .spreadRadius 0.5
+                         .offset (m/Offset 0.0 0.0))]))
+       .child list-view)
+      list-view)))
 
 ;; ============================================================================
 ;; Public API
 ;; ============================================================================
 
+(defn- refresh-tree [controller opts child]
+  (let [builder (or (:indicator-builder opts)
+                    (default-indicator-builder opts))]
+    (refresh/CustomRefreshIndicator
+     .leadingScrollIndicatorVisible (:leading-scroll-indicator-visible opts)
+     .trailingScrollIndicatorVisible (:trailing-scroll-indicator-visible opts)
+     .triggerMode (:trigger-mode opts)
+     .trigger (refresh-trigger opts)
+     .offsetToArmed (:offset-to-armed opts)
+     .controller controller
+     .builder builder
+     .onRefresh (:on-refresh opts)
+     .child child)))
+
 (defn horizontal-refresh
-  "Create a horizontal pull-to-refresh component
-  
-  Configuration parameters (config map):
-  :on-refresh - Refresh callback function that returns a Future (required)
-  :item-count - Number of list items (default: 10)
-  :item-builder - List item builder function (context index) -> widget (optional, has default implementation)
-  :background-color - List background color (default: Color(0xFFf8f4fc))
-  :reverse - Whether to reverse scrolling (default: false)
-  :separator-color - Separator line color (default: Color(0xFFe2d6ce))
-  :separator-thickness - Separator line thickness (default: 1)
-  :separator-width - Separator line width (default: 0)
-  :separator-builder - Custom separator builder function (optional)
-  :box-shadow - Shadow configuration list (optional, has default value)
-  :leading-scroll-indicator-visible - Show leading scroll indicator (default: false)
-  :trailing-scroll-indicator-visible - Show trailing scroll indicator (default: false)
-  :trigger-mode - Trigger mode (default: IndicatorTriggerMode.anywhere)
-  :trigger - Trigger position (default: IndicatorTrigger.bothEdges)
-  :indicator-builder - Custom indicator builder function (optional, has default implementation)
-  :indicator-width - Indicator width (default: 100)
-  :indicator-offset - Indicator offset (default: 100)
-  :not-armed-color - Not armed state color (default: Colors.amber)
-  :not-armed-text - Not armed state text (default: \"NOT ARMED\")
-  :armed-color - Armed state color (default: Colors.greenAccent)
-  :armed-text - Armed state text (default: \"ARMED\")
-  :armed-width - Armed state width (default: 50)
-  :armed-margin-left - Armed state left margin (default: indicator-width)
-  :text-style - Text style (optional, has default value)
-  
-  Example:
-  (horizontal-refresh {:on-refresh #(a.Future/delayed (Duration .seconds 2))
-                       :item-count 20
-                       :background-color (m/Color 0xFFffffff)
-                       :not-armed-text \"Pull to refresh\"
-                       :armed-text \"Release to refresh\"})"
+  "Horizontal pull-to-refresh. Default: swipe right from the left edge.
+
+  Required:
+    :on-refresh        fn [] -> Future
+
+  Content — provide `:child` or both `:item-builder` and `:item-count`:
+    :child             horizontal scrollable widget
+    :item-builder      (fn [context index] widget)
+    :item-count        list length
+    :separator-builder (fn [context index] widget)
+    :separator-color / :separator-thickness / :separator-width
+    :scroll-controller
+    :reverse           default false
+    :padding
+    :physics
+    :background-color
+    :box-shadow
+
+  Gesture:
+    :direction         `:right` (default, swipe right) or `:left`
+    :trigger           IndicatorTrigger override
+    :trigger-mode      default `onEdge`
+    :offset-to-armed   pull distance in px; default = `:indicator-width`
+
+  Indicator:
+    :indicator-builder (fn [context child controller] widget)
+    :indicator-width
+    :not-armed-color / :armed-color / :loading-color
+    :not-armed-text / :armed-text / :loading-text
+    :text-style
+    :text-builder      (fn [text style] widget)
+    :indicator-controller
+
+  Scrollbars:
+    :leading-scroll-indicator-visible
+    :trailing-scroll-indicator-visible"
   [config]
-  ;; Required parameter check
   (when-not (:on-refresh config)
-     (throw (Exception "horizontal-refresh: :on-refresh parameter is required")))
-  (let [{on-refresh :on-refresh
-         item-count :item-count
-         background-color :background-color
-         reverse :reverse
-         leading-scroll-indicator-visible :leading-scroll-indicator-visible
-         trailing-scroll-indicator-visible :trailing-scroll-indicator-visible
-         trigger-mode :trigger-mode
-         trigger :trigger
-         indicator-builder :indicator-builder}
-        config
-        ;; Default values
-        item-count-val (or item-count 10)
-        background-color-val (or background-color (m/Color 0xFFf8f4fc))
-        reverse-val (or reverse false)
-        leading-scroll-indicator-visible-val (if (nil? leading-scroll-indicator-visible) false leading-scroll-indicator-visible)
-        trailing-scroll-indicator-visible-val (if (nil? trailing-scroll-indicator-visible) false trailing-scroll-indicator-visible)
-        trigger-mode-val (or trigger-mode (refresh/IndicatorTriggerMode.anywhere))
-        trigger-val (or trigger refresh.IndicatorTrigger/bothEdges)
-        _ (or indicator-builder nil)]
-    (f/widget
-     :managed [controller (refresh/IndicatorController)]
-     (let [builder-fn (if indicator-builder
-                       indicator-builder
-                       (default-indicator-builder controller config))]
-       (refresh/CustomRefreshIndicator
-        .leadingScrollIndicatorVisible leading-scroll-indicator-visible-val
-        .trailingScrollIndicatorVisible trailing-scroll-indicator-visible-val
-        .triggerMode trigger-mode-val
-        .trigger trigger-val
-        .controller controller
-        .builder builder-fn
-        .onRefresh on-refresh
-        .child
-        (default-refresh-list {:background-color background-color-val
-                               :reverse reverse-val
-                               :item-count item-count-val
-                               :item-builder (:item-builder config)
-                               :separator-builder (:separator-builder config)
-                               :separator-color (:separator-color config)
-                               :separator-thickness (:separator-thickness config)
-                               :separator-width (:separator-width config)
-                               :box-shadow (:box-shadow config)}))))))
-
-
-
-
+    (throw (dc/Exception. "horizontal-refresh: :on-refresh is required")))
+  (when-not (or (:child config)
+                (and (:item-builder config) (:item-count config)))
+    (throw (dc/Exception.
+            "horizontal-refresh: provide :child, or both :item-builder and :item-count")))
+  (let [opts (normalize-opts config)
+        child (or (:child opts) (horizontal-list opts))]
+    (if-let [ext (:indicator-controller opts)]
+      (f/widget (refresh-tree ext opts child))
+      (f/widget
+       :managed [controller (refresh/IndicatorController.)]
+       (refresh-tree controller opts child)))))

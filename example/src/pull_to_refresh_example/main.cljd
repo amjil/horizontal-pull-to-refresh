@@ -1,0 +1,82 @@
+(ns pull-to-refresh-example.main
+  (:require
+   ["package:flutter/material.dart" :as m]
+   ["package:mongol/mongol.dart" :as mgl]
+   ["dart:async" :as async]
+   ["dart:core" :as dc]
+   [pull-to-refresh.refresh :as refresh]))
+
+(defn- placeholder-card [_ _]
+  (m/Container
+   .alignment m/Alignment.topCenter
+   .padding (m/EdgeInsets.all 20.0)
+   .child
+   (m/Column
+    .crossAxisAlignment m/CrossAxisAlignment.start
+    .children
+    [(m/Container
+      .margin (m/EdgeInsets.only .right 10.0)
+      .width 48.0
+      .height 48.0
+      .decoration
+      (m/BoxDecoration
+       .color (m/Color 0xFFE2D8D7)
+       .borderRadius (m/BorderRadius.all (m/Radius.circular 10.0))))
+     (m/SizedBox .height 20.0)
+     (m/Expanded
+      .child
+      (m/Row
+       .mainAxisSize m/MainAxisSize.min
+       .mainAxisAlignment m/MainAxisAlignment.start
+       .crossAxisAlignment m/CrossAxisAlignment.start
+       .children
+       [(m/Container
+         .margin (m/EdgeInsets.only .right 10.0)
+         .width 8.0
+         .height (.-infinity dc/double)
+         .decoration
+         (m/BoxDecoration
+          .color (m/Color 0xFFE2D8D7)
+          .borderRadius (m/BorderRadius.all (m/Radius.circular 10.0))))
+        (m/Container
+         .margin (m/EdgeInsets.only .right 10.0)
+         .width 8.0
+         .height (.-infinity dc/double)
+         .decoration
+         (m/BoxDecoration
+          .color (m/Color 0xFFE2D8D7)
+          .borderRadius (m/BorderRadius.all (m/Radius.circular 10.0))))
+        (m/Container
+         .margin (m/EdgeInsets.only .right 10.0)
+         .width 8.0
+         .height 200.0
+         .decoration
+         (m/BoxDecoration
+          .color (m/Color 0xFFE2D8D7)
+          .borderRadius (m/BorderRadius.all (m/Radius.circular 10.0))))]))])))
+
+(defn main []
+  (m/runApp
+   (m/MaterialApp
+    .title "Horizontal Pull To Refresh"
+    .theme (m/ThemeData
+            .primarySwatch m/Colors.blue
+            .fontFamily "OyunQaganTig"
+            .brightness m/Brightness.dark)
+    .debugShowCheckedModeBanner false
+    .home
+    (m/Scaffold
+     .appBar (m/AppBar
+              .title (m/Text "Horizontal Pull To Refresh"))
+     .body
+     (refresh/horizontal-refresh
+      {:on-refresh #(async/Future.delayed (dc/Duration .seconds 2))
+       :item-count 10
+       :item-builder placeholder-card
+       :background-color (m/Color 0xFFf8f4fc)
+       :direction :right
+       :not-armed-text "Swipe to refresh"
+       :armed-text "Release to refresh"
+       :loading-text "Refreshing"
+       :text-builder (fn [text style]
+                       (mgl/MongolText text .style style))})))))

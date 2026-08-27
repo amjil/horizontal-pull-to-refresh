@@ -1,0 +1,10 @@
+{:paths ["src"] ; where your cljd files are
+ :deps {tensegritics/clojuredart
+        {:git/url "https://github.com/tensegritics/ClojureDart.git"
+         :sha "01c41592574d53b5970dfae4e22019dd328083de"}
+        amjil/horizontal-pull-to-refresh
+        {:local/root "../"}}
+
+ :aliases {:cljd {:main-opts ["-m" "cljd.build"]}}
+ :cljd/opts {:kind :flutter
+             :main pull-to-refresh-example.main}}
